@@ -1,9 +1,9 @@
-$Tk::LCD::VERSION = '1.1';
+$Tk::LCD::VERSION = '1.2';
 
 package Tk::LCD;
 
 use base qw/Tk::Derived Tk::Canvas/;
-use vars qw/$ELW %SHAPE %LLCD %ULCD/;
+use vars qw/$ELW %SHAPE %shape %LLCD %ULCD/;
 use subs qw/ldifference/;
 use strict;
 
@@ -35,6 +35,12 @@ $ELW = 22;			# element pixel width
     'f' => [qw/ 1.4 21  3.6 19  5.4 21  4.4 31  2.2 33  0.4 31/],
     'g' => [qw/ 4.7 18  6.9 16 16.9 16 18.7 18 16.5 20  6.5 20/],
 );
+
+# %shape is 1/2 the size of %SHAPE.
+
+foreach my $c (keys %SHAPE) {
+    $shape{$c} = [ map {$_ / 2.0} @{$SHAPE{$c}} ];
+}
 
 # To display an LCD element we must turn on and off certain segments.
 # %LLCD defines a list of segments to turn on for any particular
@@ -75,6 +81,7 @@ sub Populate {
         -onfill     => [qw/PASSIVE onfill     Onfill     black/],
         -offoutline => [qw/PASSIVE offoutline Offoutline white/],
         -offfill    => [qw/PASSIVE offfill    Offfill    gray/ ],
+        -size       => [qw/METHOD  size       Size       large/ ],
         -variable   => [qw/METHOD  variable   Variable/, undef ],
     );
 
@@ -86,40 +93,71 @@ sub set {			# show an LCD number
 
     my ($self, $number) = @_;
 
-    my $offset  = 0;
-    my $onoutl  = $self->cget(-onoutline);
-    my $onfill  = $self->cget(-onfill);
-    my $offoutl = $self->cget(-offoutline);
-    my $offfill = $self->cget(-offfill);
-
     $self->delete('lcd');
+    return unless $number;
 
-    foreach my $c (split '', sprintf '%' . $self->{elements} . 'd', $number) {
+    my $onoutl    = $self->cget(-onoutline);
+    my $onfill    = $self->cget(-onfill);
+    my $offoutl   = $self->cget(-offoutline);
+    my $offfill   = $self->cget(-offfill);
+    my $shape;
+    my $size      = $self->cget(-size);
+    my $x_offset  = 0;
+    my $y_offset;
+    if ($size eq 'large') {
+	$shape    = \%SHAPE;
+	$y_offset = 0;
+    } else {
+	$shape    = \%shape;
+	$y_offset = $ELW / 2 - 4;
+	$_ = $number;
+	s/^\s+//;
+	s/\s+$//;
+	s/(^[-+]?\d+?(?=(?>(?:\d{3})+)(?!\d))|\G\d{3}(?=\d))/$1,/g;
+	$number = $_;
+    }
+
+    foreach my $c (split '', sprintf '%' . $self->{elements} . 's', $number) {
+	if ($c =~ /[\.\,]/) {
+	    if ($size eq 'small') {
+	        $self->move(
+                    $self->createPolygon(
+                          ($c eq '.') ?
+                          (0, 0, 0, 2, 2, 2, 2, 0) :
+                          (0, 4, 1, 4, 2, 3, 2, 0, 0, 0, 0, 2, 2, 2),
+                        -tags    => 'lcd',
+                        -outline => $onoutl,
+                        -fill    => $onfill,
+                    ),
+                $x_offset - 5, 22);
+	    }
+	    next;
+	}
         foreach my $symbol (@{$LLCD{$c}}) {
 
             $self->move(
 			$self->createPolygon(
-                            $SHAPE{$symbol},
+                            $shape->{$symbol},
                             -tags    => 'lcd',
                             -outline => $onoutl,
                             -fill    => $onfill,
                         ),
-            $offset, 0);
+            $x_offset, $y_offset);
 
         }
         foreach my $symbol (@{$ULCD{$c}}) {
 
             $self->move(
 			$self->createPolygon(
-                            $SHAPE{$symbol},
+                            $shape->{$symbol},
                             -tags    => 'lcd',
                             -outline => $offoutl,
                             -fill    => $offfill,
                         ),
-            $offset, 0);
+            $x_offset, $y_offset);
 
 	}
-        $offset += $ELW;
+        $x_offset += $ELW;
     } # forend all characters
 
 } # end set
@@ -146,6 +184,18 @@ sub ldifference {               # @d = ldifference \@l1, \@l2;
     return grep(! $d{$_}, @$l1);
 
 } # end ldifference
+
+sub size {
+
+    my ($self, $size) = @_;
+    if (defined $size) {
+	die "-size must be 'large' or 'small'." unless $size =~ /^large|small$/;
+	$self->{size} = $size;
+    } else {
+	$self->{size};
+    }
+
+} # end size
  
 sub variable {
 
@@ -177,6 +227,8 @@ Tk::LCD - display Liquid Crystal Display symbols.
 
 =head1 SYNOPSIS
 
+ use Tk::LCD;
+
  $lcd = $parent->LCD(-opt => val, ... );
 
 =head1 DESCRIPTION
@@ -200,6 +252,16 @@ all 8 segments lit:
 A Tk::LCD widget can consist of any number of elements, specified
 during widget creation.  To actually display an LCD number, either
 invoke the set() method, or use the -variable option.
+
+LCD elements can display a space, minus sign or a numerical diget, 
+meaning that any positive or negative I<integer number> can be displayed.
+
+LCD elements can also be either I<large> or I<small> in size.  If an LCD
+widget's size is I<small>, then there is room enough between elements
+to display dots and commas. As a result, any positive or negative I<decimal
+number> can be displayed. Additionally, numbers are automatically
+"commified", that is, commas are inserted every third digit to the
+left of the decimal point.
 
 =head1 OPTIONS
 
@@ -227,6 +289,10 @@ Outline color for OFF segments.
 
 Fill color for OFF segments.
 
+=item B<-size>
+
+Size of LCD elements, either I<large> or I<small> (default is I<large>).
+
 =item B<-variable>
 
 A scalar reference that contains the LCD number to display.  The
@@ -253,9 +319,9 @@ This mega widget has no advertised subwidgets.
 
 =head1 AUTHOR
 
-Stephen.O.Lidie@Lehigh.EDU
+sol0@Lehigh.EDU
 
-Copyright (C) 2001 - 2002, Steve Lidie. All rights reserved.
+Copyright (C) 2001 - 2003, Steve Lidie. All rights reserved.
 
 This program is free software; you can redistribute it and/or
 modify it under the same terms as Perl itself.

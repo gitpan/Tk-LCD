@@ -19,6 +19,7 @@ $lcd->configure(qw/
     -onfill     blue
     -offoutline white
     -offfill    white
+    -size       small
 /);
 $frog = 2002;
 
