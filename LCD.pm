@@ -1,4 +1,4 @@
-$Tk::LCD::VERSION = '1.2';
+$Tk::LCD::VERSION = '1.3';
 
 package Tk::LCD;
 
@@ -75,6 +75,7 @@ sub Populate {
     $self->SUPER::Populate($args);
 
     $self->ConfigSpecs(
+        -commify    => [qw/PASSIVE commify    Commify    1/    ],
         -elements   => [qw/METHOD  elements   Elements   5/    ],
         -height     => [$self, qw/ height     Height     36/   ],
         -onoutline  => [qw/PASSIVE onoutline  Onoutline  cyan/ ],
@@ -111,9 +112,11 @@ sub set {			# show an LCD number
 	$shape    = \%shape;
 	$y_offset = $ELW / 2 - 4;
 	$_ = $number;
-	s/^\s+//;
-	s/\s+$//;
-	s/(^[-+]?\d+?(?=(?>(?:\d{3})+)(?!\d))|\G\d{3}(?=\d))/$1,/g;
+	if ($self->cget(-commify)) {
+	    s/^\s+//;
+	    s/\s+$//;
+	    s/(^[-+]?\d+?(?=(?>(?:\d{3})+)(?!\d))|\G\d{3}(?=\d))/$1,/g;
+	}
 	$number = $_;
     }
 
@@ -199,22 +202,21 @@ sub size {
  
 sub variable {
 
-    use Tie::Watch;
+    use Tk::Trace;
 
     my ($lcd, $vref) = @_;
 
     my $st = [sub {
-
-        my ($watch, $new_val) = @_;
-	my $argv= $watch->Args('-store');
-	$argv->[0]->set($new_val);
-	$watch->Store($new_val);
-
+        my ($index, $new_val, $op, $lcd) = @_;
+        return unless $op eq 'w';
+        $lcd->set($new_val);
+        $new_val;
     }, $lcd];
 
-    $lcd->{watch} = Tie::Watch->new(-variable => $vref, -store => $st);
+    $lcd->traceVariable($vref, 'w' => $st);
+    $lcd->{watch} = $vref;
 
-    $lcd->OnDestroy( [sub {$_[0]->{watch}->Unwatch}, $lcd] );
+    $lcd->OnDestroy( [sub {$_[0]->traceVdelete($_[0]->{watch})}, $lcd] );
 
 } # end variable
 
@@ -259,7 +261,7 @@ meaning that any positive or negative I<integer number> can be displayed.
 LCD elements can also be either I<large> or I<small> in size.  If an LCD
 widget's size is I<small>, then there is room enough between elements
 to display dots and commas. As a result, any positive or negative I<decimal
-number> can be displayed. Additionally, numbers are automatically
+number> can be displayed. Additionally, numbers can be
 "commified", that is, commas are inserted every third digit to the
 left of the decimal point.
 
@@ -268,6 +270,12 @@ left of the decimal point.
 The following option/value pairs are supported:
 
 =over 4
+
+=item B<-commify>
+
+Pertinent only if the LCD size is small, a boolean indicating
+whether a number is commified; that is, commas inserted every
+third digit.  Default is 1.
 
 =item B<-elements>
 
